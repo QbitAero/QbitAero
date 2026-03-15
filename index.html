@@ -673,10 +673,17 @@ cvs.addEventListener('mouseleave', () => { document.getElementById('tip').style.
 
 cvs.addEventListener('click', e => {
   if (mouseHasMoved) return;
-  const { col, row, i } = canvasToCell(e.clientX, e.clientY);
+  const rect = cvs.getBoundingClientRect();
+  const cx = (e.clientX - rect.left) * (baseW / rect.width);
+  const cy = (e.clientY - rect.top)  * (baseH / rect.height);
+  const wx = (cx - vpX) / vpScale;
+  const wy = (cy - vpY) / vpScale;
+  const col = Math.floor(wx / baseCW);
+  const row = Math.floor(wy / baseCH);
+  const i   = row * GRID_COLS + col;
   if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) return;
-  if (!loggedIn) { notify('Please login first!', 'warn'); openModal(); return; }
-  if (cells[i] === 3) { notify('You already own this piece!', 'warn'); return; }
+  if (!loggedIn) { notify('Please login first! 🔒', 'warn'); openModal(); return; }
+  if (cells[i] === 3) { notify('You already own this piece! ✅', 'warn'); return; }
   if (cells[i] === 2) { notify('Already claimed by someone else!', 'warn'); return; }
   doClaim(i);
 });
@@ -734,26 +741,11 @@ function earnCoins(e) {
 //  SIMULATE OTHER PLAYERS
 // ═══════════════════════════════════════════
 function seedOthers() {
-  const free = [];
-  for (let i = 0; i < N; i++) if (cells[i] === 1) free.push(i);
-  const n = Math.floor(free.length * 0.05);
-  for (let k = 0; k < n; k++) {
-    const idx = free[Math.floor(Math.random() * free.length)];
-    if (cells[idx] === 1) { cells[idx] = 2; totalClaimed++; }
-  }
+  // No fake seeding — only real Firebase data shown
   drawAll(); updateStats();
 }
 
-setInterval(() => {
-  const free = [];
-  for (let i = 0; i < N; i++) if (cells[i] === 1) free.push(i);
-  if (!free.length) return;
-  for (let k = 0; k < Math.floor(Math.random() * 3) + 1; k++) {
-    const idx = free[Math.floor(Math.random() * free.length)];
-    if (cells[idx] === 1) { cells[idx] = 2; totalClaimed++; }
-  }
-  updateStats(); drawAll();
-}, 3000);
+// No fake interval — real data from Firebase only
 
 setInterval(() => {
   document.getElementById('s-online').textContent = (1247 + Math.floor(Math.random() * 100) - 50).toLocaleString();
@@ -1151,26 +1143,11 @@ async function earnCoins(e) {
 //  SIMULATE OTHER PLAYERS (visual only)
 // ═══════════════════════════════════════════
 function seedOthers() {
-  const free = [];
-  for (let i = 0; i < N; i++) if (cells[i] === 1) free.push(i);
-  const n = Math.floor(free.length * 0.05);
-  for (let k = 0; k < n; k++) {
-    const idx = free[Math.floor(Math.random() * free.length)];
-    if (cells[idx] === 1) { cells[idx] = 2; totalClaimed++; }
-  }
+  // No fake seeding — only real Firebase data shown
   drawAll(); updateStats();
 }
 
-setInterval(() => {
-  const free = [];
-  for (let i = 0; i < N; i++) if (cells[i] === 1) free.push(i);
-  if (!free.length) return;
-  for (let k = 0; k < Math.floor(Math.random() * 3) + 1; k++) {
-    const idx = free[Math.floor(Math.random() * free.length)];
-    if (cells[idx] === 1) { cells[idx] = 2; totalClaimed++; }
-  }
-  updateStats(); drawAll();
-}, 3000);
+// No fake interval — real data from Firebase only
 
 setInterval(() => {
   document.getElementById('s-online').textContent = (1247 + Math.floor(Math.random() * 100) - 50).toLocaleString();
