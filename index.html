@@ -966,7 +966,7 @@ function resetBtn() {
   document.getElementById('mbtn').textContent = aTab === 'login' ? 'LOGIN' : 'CREATE ACCOUNT';
 }
 
-function loadUserData(uid) {
+async function loadUserData(uid) {
   try {
     const doc = await db.collection('users').doc(uid).get();
     if (!doc.exists) return;
@@ -984,7 +984,6 @@ function loadUserData(uid) {
     document.getElementById('login-btn').style.display  = 'none';
     document.getElementById('logout-btn').style.display = 'block';
     document.getElementById('bottom-panel').classList.add('on');
-    document.body.classList.add('panel-on');
     const b = document.getElementById('pieces-badge');
     b.classList.add('on');
     b.textContent = myPieces > 0 ? myPieces + ' pieces owned' : 'No pieces yet';
@@ -1034,7 +1033,6 @@ async function doLogout() {
   document.getElementById('login-btn').style.display  = 'block';
   document.getElementById('logout-btn').style.display = 'none';
   document.getElementById('bottom-panel').classList.remove('on');
-  document.body.classList.remove('panel-on');
   document.getElementById('pieces-badge').classList.remove('on');
   drawAll();
   notify('Logged out', '');
