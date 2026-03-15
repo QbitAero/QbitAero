@@ -691,24 +691,7 @@ cvs.addEventListener('click', e => {
 // ═══════════════════════════════════════════
 //  CLAIM — land AND ocean both claimable
 // ═══════════════════════════════════════════
-function doClaim(i) {
-  if (coins < COST) { notify('Earn coins first! Click EARN button.', 'warn'); return; }
-  coins -= COST;
-  cells[i] = 3;
-  myPieces++;
-  totalClaimed++;
-  myClaimedTiles.push(i);
-  document.getElementById('coins-val').textContent = coins;
-  const badge = document.getElementById('pieces-badge');
-  badge.classList.add('on');
-  badge.textContent = myPieces + ' piece' + (myPieces !== 1 ? 's' : '') + ' owned';
-  updateStats();
-  drawAll();
-  notify('Piece claimed! You own ' + myPieces + ' pieces', 'ok');
-  let users = {};
-  try { users = JSON.parse(localStorage.getItem('dw7_u') || '{}'); } catch(err) {}
-  if (users[uname]) { users[uname].pieces = myPieces; users[uname].coins = coins; users[uname].tiles = myClaimedTiles; localStorage.setItem('dw7_u', JSON.stringify(users)); }
-}
+// NOTE: doClaim is defined below with full Firebase backend
 
 // ═══════════════════════════════════════════
 //  EARN COINS — BIG CLICK BUTTON
@@ -733,8 +716,11 @@ function earnCoins(e) {
   btn.style.transform = 'scale(0.92)';
   setTimeout(() => btn.style.transform = '', 120);
 
-  // TODO: Save coins to Firebase
-  // db.collection('users').doc(uname).update({ coins: firebase.firestore.FieldValue.increment(n) });
+  // Save to Firebase — debounced every 5 coins to reduce writes
+  if (coins % 5 === 0 && currentUser) {
+    db.collection('users').doc(currentUser.uid).update({ coins })
+      .catch(err => console.error('Coins save error:', err));
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -833,7 +819,7 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Usernames — anyone can read (to check availability), only owner can write
+    // Usernames — anyone can read (to check availability + for login email lookup)
     match /usernames/{username} {
       allow read: if true;
       allow create: if request.auth != null
@@ -917,12 +903,18 @@ async function doAuth() {
       const uSnap = await db.collection('usernames').doc(u).get();
       if (uSnap.exists) { notify('Username already taken!', 'warn'); resetBtn(); return; }
 
+      // Check if email already registered in Auth before creating account
+      // (Firebase will throw auth/email-already-in-use if so, handled in catch)
+
       // Create Firebase Auth user
       const cred = await auth.createUserWithEmailAndPassword(email, p);
       const uid  = cred.user.uid;
 
-      // Save username mapping + user data
-      await db.collection('usernames').doc(u).set({ uid });
+      // Set display name = username — this shows in Firebase Auth console instead of email
+      await cred.user.updateProfile({ displayName: u });
+
+      // Save username mapping WITH email — critical for login to work without auth
+      await db.collection('usernames').doc(u).set({ uid, email });
       await db.collection('users').doc(uid).set({
         username: u, email, coins: 0, pieces: 0, tiles: [], createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
@@ -930,17 +922,38 @@ async function doAuth() {
       notify('Account created! Welcome ' + u + ' 🎉', 'ok');
 
     } else {
-      // LOGIN — lookup uid from username
+      // LOGIN — lookup email directly from usernames doc (no auth required to read usernames)
       const uSnap = await db.collection('usernames').doc(u).get();
       if (!uSnap.exists) { notify('Username not found!', 'warn'); resetBtn(); return; }
-      const { uid } = uSnap.data();
+      const snapData = uSnap.data();
 
-      // Get email from users collection
-      const userDoc = await db.collection('users').doc(uid).get();
-      if (!userDoc.exists) { notify('User data not found!', 'warn'); resetBtn(); return; }
-      const userEmail = userDoc.data().email;
+      // email is stored directly in usernames doc to avoid reading protected users collection
+      let userEmail = snapData.email;
+      if (!userEmail) {
+        // Old account format — email not stored in usernames doc
+        // Check if user has typed email in the email field (shown as fallback)
+        const typedEmail = _sanitize(document.getElementById('ie').value).toLowerCase();
+        if (!typedEmail || !_validateEmail(typedEmail)) {
+          // Show email field and ask user to enter it
+          document.getElementById('eg').style.display = 'block';
+          notify('Please enter your email address below to login', 'warn');
+          resetBtn(); return;
+        }
+        userEmail = typedEmail;
+        // Update usernames doc with email for future logins (after successful auth)
+      }
 
       await auth.signInWithEmailAndPassword(userEmail, p);
+
+      // Patch old accounts: save email to usernames doc so future logins work
+      if (!snapData.email && userEmail) {
+        db.collection('usernames').doc(u).update({ email: userEmail }).catch(() => {});
+      }
+      // Set display name if not already set
+      if (!auth.currentUser?.displayName) {
+        auth.currentUser?.updateProfile({ displayName: u }).catch(() => {});
+      }
+
       notify('Welcome back, ' + u + '! 🌍', 'ok');
     }
     closeModal();
@@ -989,9 +1002,12 @@ async function loadUserData(uid) {
 
 // Real-time listener — show other users' claimed tiles live
 let globalListener = null;
+let mapLoaded = false; // guard: don't apply tiles before map is ready
+
 function listenGlobalTiles() {
   if (globalListener) globalListener(); // unsubscribe old
   globalListener = db.collection('tiles').onSnapshot(snap => {
+    if (!mapLoaded) return; // wait for map to be ready before painting tiles
     snap.docChanges().forEach(change => {
       if (change.type === 'added' || change.type === 'modified') {
         const d   = change.doc.data();
@@ -1066,11 +1082,8 @@ function notify(msg, type) {
 //  CLAIM — FIREBASE BACKEND
 // ═══════════════════════════════════════════
 async function doClaim(i) {
-  // SECURITY: Rate limit claims — max 10 per 10 seconds
-  if (!_checkRateLimit('claim', 10, 10000)) return;
   if (coins < COST) { notify('Earn coins first! Click EARN button.', 'warn'); return; }
   if (!currentUser) { notify('Please login!', 'warn'); return; }
-  // SECURITY: Validate tile index
   if (typeof i !== 'number' || i < 0 || i >= N || !Number.isInteger(i)) { notify('Invalid tile!', 'warn'); return; }
 
   coins -= COST;
@@ -1091,7 +1104,7 @@ async function doClaim(i) {
   try {
     const uid = currentUser.uid;
     const batch = db.batch();
-    // Update user doc
+    // Update user doc — always save coins on claim
     batch.update(db.collection('users').doc(uid), {
       coins: coins,
       pieces: myPieces,
@@ -1107,7 +1120,7 @@ async function doClaim(i) {
       totalClaimed: firebase.firestore.FieldValue.increment(1)
     }, { merge: true });
     await batch.commit();
-  } catch(err) { console.error('Claim save error:', err); }
+  } catch(err) { console.error('Claim save error:', err); notify('Save error — check console', 'warn'); }
 }
 
 // ═══════════════════════════════════════════
@@ -1192,6 +1205,7 @@ async function initMap() {
       }
     }
     document.getElementById('loading').style.display = 'none';
+    mapLoaded = true; // map is ready — tile listener can now paint cells
     seedOthers();
   } catch(err) {
     document.getElementById('loading').textContent = 'MAP LOAD ERROR — CHECK CONNECTION';
