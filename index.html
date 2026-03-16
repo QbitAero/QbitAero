@@ -340,7 +340,7 @@
   <div class="stat"><div class="sv">100,000,000</div><div class="sl">Total Pieces</div></div>
   <div class="stat"><div class="sv g" id="s-claimed">0</div><div class="sl">Claimed</div></div>
   <div class="stat"><div class="sv r" id="s-avail">100,000,000</div><div class="sl">Available</div></div>
-  <div class="stat"><div class="sv" id="s-online">1,247</div><div class="sl"><span class="live-dot"></span>Online</div></div>
+  <div class="stat"><div class="sv" id="s-online">—</div><div class="sl">👤 Users</div></div>
 </div>
 
 <div class="prog-wrap">
@@ -1227,6 +1227,19 @@ async function initMap() {
 }
 
 window.addEventListener('load', initMap);
+window.addEventListener('load', async () => {
+  try {
+    const snap = await db.collection('stats').doc('global').get();
+    if (snap.exists) {
+      const data = snap.data();
+      if (data.totalUsers) {
+        document.getElementById('s-online').textContent = data.totalUsers.toLocaleString();
+      } else {
+        document.getElementById('s-online').textContent = '1';
+      }
+    }
+  } catch(e) {}
+});
 window.addEventListener('resize', () => { initCanvasSize(); drawAll(); });
 </script>
 </body>
